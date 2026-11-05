@@ -17,7 +17,7 @@ After a round the plane hands over to you: **WASD** move, **mouse** look (click 
 - `index.html`: renderer, game and per-city settings (`CITY_DEFS`), all in one file
 - `data/<city>/`: baked city data, loaded with script tags because `file://` pages can't `fetch()` local files
 - `tools/bake.py <city>`: rebuilds a city (needs Pillow and numpy); downloads are cached in `.cache/<city>/`
-- `tools/check.mjs`: runs the page in Chrome on the real GPU for frame timing, screenshots and a playthrough. `CITY=berlin` picks the city, `JUMP=lat,lon,alt` adds a close-up, `HEADED=1` shows the window.
+- `tools/check.mjs`: runs the page in Chrome on the real GPU for frame timing, screenshots and a playthrough. `CITY=berlin` picks the city, `JUMP=lat,lon,alt` adds a close-up, `BASE=<url>` tests a deployed copy, `HEADED=1` shows the window.
 
 Baking Aarhus or Galten needs `DATAFORSYNINGEN_TOKEN` and `DATAFORDELER_API_KEY` in the environment. Keys are never written to cache names, logs or output.
 

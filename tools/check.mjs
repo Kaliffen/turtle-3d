@@ -37,7 +37,7 @@ const shot = async name => { await ev('new Promise(r=>requestAnimationFrame(()=>
 await send('Runtime.enable'); await send('Page.enable');
 await send('Page.bringToFront');
 const t0 = Date.now();
-await send('Page.navigate', { url: pathToFileURL(join(root,'index.html')).href + `?nofocus&noadapt&city=${process.env.CITY || 'paris'}` });
+await send('Page.navigate', { url: (process.env.BASE || pathToFileURL(join(root,'index.html')).href) + `?nofocus&noadapt&city=${process.env.CITY || 'paris'}` });
 for (let i = 0; i < 480; i++) { await sleep(500); if (await ev('!!window.__ready')) break;
   if (i % 20 === 19) console.log(' loading', await ev("document.getElementById('loadMsg')?.textContent"), await ev("document.getElementById('bar')?.style.width")); }
 const ready = await ev('!!window.__ready');
