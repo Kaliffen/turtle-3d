@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Turtle 3D</title>
+<style>
+  :root { --ink:#f3f1ea; --dim:#f3f1ea99; --glass:#0d1214b8; --line:#ffffff24; --hit:#7fd18c; --warn:#e8b65a; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:#8fa3b3; overflow:hidden; color:var(--ink);
+    font:15px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  canvas { position:fixed; inset:0; display:block; }
+  /* Cheap lens falloff: a CSS overlay costs no shader time */
+  #lens { position:fixed; inset:0; pointer-events:none;
+    background:radial-gradient(ellipse at 50% 46%, transparent 52%, #06121c66 100%); }
+  .mono { font-family:ui-monospace,"Cascadia Mono",Consolas,monospace; font-variant-numeric:tabular-nums; }
+
+  #hud { position:fixed; top:16px; left:16px; right:16px; display:flex; justify-content:space-between; align-items:flex-start; pointer-events:none; text-shadow:0 1px 3px #0009; }
+  #brand { font-weight:650; letter-spacing:.02em; font-size:17px; }
+  #inst { text-align:right; font-size:13px; line-height:1.5; }
+  #inst b { font-weight:600; font-size:19px; }
+  #inst span { color:var(--dim); }
+  #fps { color:var(--dim); display:none; }
+
+  #panel { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); width:min(460px,calc(100vw - 32px)); display:flex; flex-direction:column; gap:6px; }
+  #rows { display:flex; flex-direction:column; gap:4px; }
+  .row { display:grid; grid-template-columns:1fr auto auto auto; gap:12px; align-items:center; padding:7px 12px; border-radius:8px; background:var(--glass); backdrop-filter:blur(10px); border:1px solid var(--line); animation:in .3s ease-out; }
+  .row .city { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .pct { width:42px; text-align:right; color:var(--warn); }
+  .row.hit .pct, .row.hit .city { color:var(--hit); font-weight:600; }
+  .row .dir { display:inline-block; width:16px; text-align:center; }
+  @keyframes in { from { opacity:0; transform:translateY(6px);} }
+  #box { position:relative; }
+  #q { width:100%; padding:13px 58px 13px 14px; border-radius:10px; font:inherit; font-size:16px; color:var(--ink); background:var(--glass); backdrop-filter:blur(10px); border:1px solid var(--line); outline:none; }
+  #q:focus { border-color:#ffffff70; }
+  #q::placeholder { color:var(--dim); }
+  #count { position:absolute; right:14px; top:14px; color:var(--dim); font-size:13px; }
+  #sug { position:absolute; bottom:calc(100% + 4px); left:0; right:0; margin:0; padding:4px; list-style:none; border-radius:10px; background:#0d1214ee; border:1px solid var(--line); max-height:228px; overflow:auto; }
+  #sug:empty { display:none; }
+  #sug li { padding:7px 10px; border-radius:6px; cursor:pointer; }
+  #sug li small { color:var(--dim); margin-left:6px; }
+  #sug li.on, #sug li:hover { background:#ffffff1f; }
+
+  #end { display:none; padding:14px; border-radius:10px; background:var(--glass); backdrop-filter:blur(10px); border:1px solid var(--line); }
+  #end h2 { margin:0 0 2px; font-size:21px; }
+  #end p { margin:0 0 10px; color:var(--dim); }
+  #end .acts { display:flex; gap:8px; }
+  button { font:inherit; color:var(--ink); padding:8px 14px; border-radius:8px; border:1px solid var(--line); background:#ffffff1a; cursor:pointer; }
+  button:hover { background:#ffffff33; }
+  #credits { margin-top:10px; font-size:11.5px; color:var(--dim); }
+
+  .pin { position:fixed; transform:translate(-50%,-100%); font-size:12.5px; font-weight:600; padding:3px 8px; border-radius:5px; background:#0d1214cc; white-space:nowrap; pointer-events:none; }
+  .pin::after { content:""; position:absolute; left:50%; top:100%; width:1px; height:18px; background:#ffffffb0; }
+
+  #flyHint { display:none; position:fixed; left:50%; bottom:16px; transform:translateX(-50%); padding:7px 12px; border-radius:8px; font-size:12.5px; white-space:nowrap; color:var(--dim); background:var(--glass); backdrop-filter:blur(10px); border:1px solid var(--line); pointer-events:none; }
+  #flyHint b { color:var(--ink); font-weight:600; }
+  body.flying #panel { display:none; }
+  body.flying #flyHint { display:block; }
+  body.flying canvas { cursor:none; }
+  @media (max-width:640px) { #flyHint { white-space:normal; width:calc(100vw - 32px); text-align:center; } }
+
+  #load { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; background:#101619; transition:opacity .9s; z-index:5; }
+  #load .bar { width:220px; height:2px; background:#ffffff22; }
+  #load .bar i { display:block; height:100%; width:0; background:var(--ink); transition:width .15s; }
+  #load small { color:var(--dim); }
+  @media (max-width:560px) { #inst b { font-size:16px; } .row { gap:8px; } }
+  @media (prefers-reduced-motion:reduce) { .row { animation:none; } }
+</style>
+</head>
+<body>
+<div id="lens"></div>
+<div id="hud">
+  <div id="brand">Turtle 3D</div>
+  <div id="inst" class="mono"><b id="alt">----</b> <span>m</span><br><span id="hdg">HDG ---°</span><br><span id="fps"></span></div>
+</div>
+<div id="panel">
+  <div id="rows"></div>
+  <div id="end">
+    <h2 id="endT"></h2><p id="endS"></p>
+    <div class="acts"><button id="freeFly">Fly freely</button><button id="again">Next city</button><button id="share">Copy result</button></div>
+    <div id="credits"></div>
+  </div>
+  <div id="box">
+    <ul id="sug"></ul>
+    <input id="q" autocomplete="off" spellcheck="false" placeholder="Which city are you flying over?" aria-label="Guess a city">
+    <span id="count" class="mono"></span>
+  </div>
+</div>
+<div id="flyHint"><b>WASD</b> move · <b>Mouse</b> look · <b>Shift</b> fast · <b>E</b>/<b>Q</b> up/down · <b>Wheel</b> speed · <b>Esc</b> release</div>
+<div id="load"><div>Boarding</div><div class="bar"><i id="bar"></i></div><small id="loadMsg"></small></div>
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
+
+// ---------------------------------------------------------------- config
+const CITY_DEFS = {
+  paris: {
+    answer:{ name:'Paris', country:'France', lat:48.8566, lon:2.3522 },
+    alts:[1900,1450,1100,820,600,430], speed:85, sun:[.42,.78,.56], gamma:1.10, sat:1.18, tint:[1.13,1.09,1.03], stone:[[.72,.67,.58],[.83,.79,.70]],
+    // Starts over the river, then lines up the Champ de Mars toward the tower.
+    route:[[48.8505,2.3585],[48.8535,2.3440],[48.8580,2.3345],[48.8625,2.3235],[48.8600,2.3105],[48.8535,2.3045],[48.8560,2.2985],[48.8600,2.2895],[48.8660,2.2790],[48.8745,2.2860],[48.8765,2.3020],[48.8725,2.3210],[48.8705,2.3400],[48.8615,2.3560]],
+    landmarks:[['Eiffel Tower',48.85826,2.29450,335],['Arc de Triomphe',48.87378,2.29504],['Louvre',48.86060,2.33760],['Notre-Dame',48.85297,2.34990],['Les Invalides',48.85500,2.31260],['Sacré-Cœur',48.88672,2.34306],['Place de la Concorde',48.86560,2.32120]],
+    exclude:[[48.85826,2.29450,85]], model:() => buildEiffel(),
+    credits:'Aerial imagery & buildings: IGN (BD ORTHO, BD TOPO), Licence Ouverte. Trees: Ville de Paris, ODbL. Elevation: Terrarium (AWS Open Data / Mapzen). Eiffel Tower model is procedural.',
+  },
+  newyork: {
+    answer:{ name:'New York', country:'USA', lat:40.71, lon:-74.01 },
+    alts:[2100,1750,1450,1200,950,760], speed:95, sun:[.36,.70,.62], gamma:1.04, sat:1.2, tint:[1.12,1.09,1.03], stone:[[.60,.54,.49],[.86,.84,.80]], wall:1.3, waterFlat:1,
+    // Up the Hudson past Midtown, across the south of Central Park, back down the East River to the bridges.
+    route:[[40.7030,-74.0080],[40.7240,-74.0060],[40.7500,-74.0000],[40.7680,-73.9880],[40.7800,-73.9740],[40.7700,-73.9690],[40.7480,-73.9730],[40.7240,-73.9780],[40.7070,-73.9920],[40.7000,-74.0020]],
+    landmarks:[['Empire State Building',40.74844,-73.98566,400],['Central Park',40.77500,-73.96540],['Times Square',40.75800,-73.98550,120],['One World Trade Center',40.71274,-74.01338,560],['Brooklyn Bridge',40.70610,-73.99690,60],['Grand Central',40.75270,-73.97720,80]],
+    credits:'Aerial imagery: USGS NAIP. Buildings & street trees: NYC Open Data. Elevation: Terrarium (AWS Open Data / Mapzen).',
+  },
+  berlin: {
+    answer:{ name:'Berlin', country:'Germany', lat:52.52, lon:13.40 },
+    alts:[1900,1500,1150,900,700,560], speed:85, sun:[.36,.76,.54], gamma:1.0, sat:1.26, tint:[1.10,1.07,1.0], stone:[[.68,.65,.60],[.82,.79,.72]],
+    // From Tempelhof over Potsdamer Platz and the Tiergarten, along Unter den Linden to the TV Tower, back by the Spree.
+    route:[[52.4840,13.3900],[52.5000,13.3760],[52.5120,13.3550],[52.5190,13.3640],[52.5180,13.3820],[52.5210,13.4000],[52.5180,13.4250],[52.5030,13.4400],[52.4900,13.4200]],
+    landmarks:[['TV Tower',52.52080,13.40940,375],['Brandenburg Gate',52.51627,13.37770,50],['Reichstag',52.51862,13.37618,70],['Museum Island',52.51690,13.40190,60],['Potsdamer Platz',52.50960,13.37600,110],['Tempelhof Field',52.47300,13.40300],['Oberbaum Bridge',52.50200,13.44590,50]],
+    exclude:[[52.52080,13.40940,25]], model:() => buildTVTower(52.52080,13.40940),
+    credits:'Aerial imagery, buildings, trees & water: Geoportal Berlin, dl-de/zero-2-0. Elevation: Terrarium (AWS Open Data / Mapzen). TV Tower model is procedural.',
+  },
+  aarhus: {
+    answer:{ name:'Aarhus', country:'Denmark', lat:56.1567, lon:10.2108 },
+    alts:[1500,1200,950,750,600,450], speed:75, sun:[.30,.62,.60], gamma:1.0, sat:1.2, tint:[1.08,1.06,1.0], stone:[[.58,.42,.34],[.74,.66,.58]],
+    // North along the harbour, over to the old town, then south past the museum and through the centre.
+    route:[[56.1400,10.2200],[56.1540,10.2180],[56.1640,10.2200],[56.1690,10.2060],[56.1620,10.1950],[56.1500,10.1960],[56.1400,10.2050]],
+    landmarks:[['ARoS rainbow',56.15390,10.19960,72],['Aarhus Cathedral',56.15680,10.21050,105],['Dokk1',56.15340,10.21430,40],['The Iceberg',56.15860,10.21930,60],['Den Gamle By',56.15890,10.19190,30],['Marselisborg Palace',56.13100,10.21200,30]],
+    model:() => buildRainbow(56.15390,10.19960),
+    credits:'Aerial imagery: SDFI (GeoDanmark Ortofoto). Buildings, lakes & trees: GeoDanmark via Datafordeler. Elevation: Terrarium (AWS Open Data / Mapzen). ARoS rainbow model is procedural.',
+  },
+  galten: {
+    answer:{ name:'Galten', country:'Denmark', lat:56.1565, lon:9.9090 },
+    alts:[1100,900,730,590,470,370], speed:55, sun:[.30,.62,.60], gamma:1.0, sat:1.2, tint:[1.08,1.06,1.0], stone:[[.58,.42,.34],[.74,.66,.58]],
+    route:[[56.1490,9.9000],[56.1490,9.9180],[56.1570,9.9250],[56.1640,9.9180],[56.1640,9.9000],[56.1570,9.8930]],
+    landmarks:[['Galten',56.15650,9.90900,40]],
+    credits:'Aerial imagery: SDFI (GeoDanmark Ortofoto). Buildings, lakes & trees: GeoDanmark via Datafordeler. Elevation: Terrarium (AWS Open Data / Mapzen).',
+  },
+};
+const ROTATION = Object.keys(CITY_DEFS);
+const params = new URLSearchParams(location.search);
+const dayIndex = Math.floor(Date.now()/864e5);        // one city per day, or pick with ?city=galten
+const CITY_ID = CITY_DEFS[params.get('city')] ? params.get('city') : ROTATION[dayIndex%ROTATION.length];
+const C = CITY_DEFS[CITY_ID];
+const ANSWER = C.answer, ALTS = C.alts, MAX_GUESSES = ALTS.length, SPEED = C.speed, ROUTE = C.route, LANDMARKS = C.landmarks;
+const SUN = new THREE.Vector3(...C.sun).normalize();  // matches the shadows baked in each city's photo
+
+const CITIES = `Amsterdam,Netherlands,52.37,4.90;Ankara,Türkiye,39.93,32.86;Athens,Greece,37.98,23.73;Atlanta,USA,33.75,-84.39;Auckland,New Zealand,-36.85,174.76;Baghdad,Iraq,33.31,44.36;Bangkok,Thailand,13.76,100.50;Barcelona,Spain,41.39,2.17;Beijing,China,39.90,116.41;Beirut,Lebanon,33.89,35.50;Belgrade,Serbia,44.79,20.45;Bergen,Norway,60.39,5.32;Berlin,Germany,52.52,13.40;Bern,Switzerland,46.95,7.45;Birmingham,UK,52.49,-1.89;Bogotá,Colombia,4.71,-74.07;Bordeaux,France,44.84,-0.58;Boston,USA,42.36,-71.06;Brasília,Brazil,-15.79,-47.88;Bratislava,Slovakia,48.15,17.11;Brussels,Belgium,50.85,4.35;Bucharest,Romania,44.43,26.10;Budapest,Hungary,47.50,19.04;Buenos Aires,Argentina,-34.60,-58.38;Cairo,Egypt,30.04,31.24;Cape Town,South Africa,-33.92,18.42;Caracas,Venezuela,10.48,-66.90;Casablanca,Morocco,33.57,-7.59;Chicago,USA,41.88,-87.63;Copenhagen,Denmark,55.68,12.57;Delhi,India,28.61,77.21;Denver,USA,39.74,-104.99;Dubai,UAE,25.20,55.27;Dublin,Ireland,53.35,-6.26;Edinburgh,UK,55.95,-3.19;Florence,Italy,43.77,11.26;Frankfurt,Germany,50.11,8.68;Geneva,Switzerland,46.20,6.14;Glasgow,UK,55.86,-4.25;Hamburg,Germany,53.55,9.99;Havana,Cuba,23.11,-82.37;Helsinki,Finland,60.17,24.94;Hong Kong,China,22.32,114.17;Honolulu,USA,21.31,-157.86;Houston,USA,29.76,-95.37;Istanbul,Türkiye,41.01,28.98;Jakarta,Indonesia,-6.21,106.85;Jerusalem,Israel,31.77,35.21;Johannesburg,South Africa,-26.20,28.05;Kraków,Poland,50.06,19.94;Kuala Lumpur,Malaysia,3.14,101.69;Kyiv,Ukraine,50.45,30.52;Kyoto,Japan,35.01,135.77;Lagos,Nigeria,6.52,3.38;Las Vegas,USA,36.17,-115.14;Lima,Peru,-12.05,-77.04;Lisbon,Portugal,38.72,-9.14;Liverpool,UK,53.41,-2.98;London,UK,51.51,-0.13;Los Angeles,USA,34.05,-118.24;Lyon,France,45.76,4.84;Madrid,Spain,40.42,-3.70;Manchester,UK,53.48,-2.24;Manila,Philippines,14.60,120.98;Marseille,France,43.30,5.37;Melbourne,Australia,-37.81,144.96;Mexico City,Mexico,19.43,-99.13;Miami,USA,25.76,-80.19;Milan,Italy,45.46,9.19;Montréal,Canada,45.50,-73.57;Moscow,Russia,55.76,37.62;Mumbai,India,19.08,72.88;Munich,Germany,48.14,11.58;Naples,Italy,40.85,14.27;Nairobi,Kenya,-1.29,36.82;New York,USA,40.71,-74.01;Nice,France,43.70,7.27;Aarhus,Denmark,56.1567,10.2108;Aalborg,Denmark,57.05,9.92;Esbjerg,Denmark,55.48,8.45;Galten,Denmark,56.1565,9.9090;Horsens,Denmark,55.86,9.85;Kolding,Denmark,55.49,9.47;Odense,Denmark,55.40,10.39;Randers,Denmark,56.46,10.04;Silkeborg,Denmark,56.17,9.55;Skanderborg,Denmark,56.04,9.93;Vejle,Denmark,55.71,9.54;Viborg,Denmark,56.45,9.40;Osaka,Japan,34.69,135.50;Oslo,Norway,59.91,10.75;Ottawa,Canada,45.42,-75.70;Paris,France,48.8566,2.3522;Philadelphia,USA,39.95,-75.17;Porto,Portugal,41.15,-8.61;Prague,Czechia,50.08,14.44;Reykjavík,Iceland,64.15,-21.94;Rio de Janeiro,Brazil,-22.91,-43.17;Rome,Italy,41.90,12.50;Rotterdam,Netherlands,51.92,4.48;Saint Petersburg,Russia,59.93,30.34;San Francisco,USA,37.77,-122.42;Santiago,Chile,-33.45,-70.67;São Paulo,Brazil,-23.55,-46.63;Seattle,USA,47.61,-122.33;Seoul,South Korea,37.57,126.98;Seville,Spain,37.39,-5.98;Shanghai,China,31.23,121.47;Singapore,Singapore,1.35,103.82;Sofia,Bulgaria,42.70,23.32;Stockholm,Sweden,59.33,18.07;Strasbourg,France,48.57,7.75;Sydney,Australia,-33.87,151.21;Taipei,Taiwan,25.03,121.57;Tehran,Iran,35.69,51.39;Tel Aviv,Israel,32.09,34.78;Tokyo,Japan,35.68,139.69;Toronto,Canada,43.65,-79.38;Toulouse,France,43.60,1.44;Valencia,Spain,39.47,-0.38;Vancouver,Canada,49.28,-123.12;Venice,Italy,45.44,12.33;Vienna,Austria,48.21,16.37;Warsaw,Poland,52.23,21.01;Washington,USA,38.91,-77.04;Zürich,Switzerland,47.38,8.54`
+  .split(';').map(s => { const [name,country,lat,lon] = s.split(','); return { name, country, lat:+lat, lon:+lon }; });
+
+const $ = id => document.getElementById(id);
+
+// ---------------------------------------------------------------- data loading (script tags: works from file://)
+const loadScript = name => new Promise((ok, no) => { const s = document.createElement('script'); s.src = `data/${CITY_ID}/${name}.js`;
+  s.onload = () => { s.remove(); ok(); }; s.onerror = () => no(new Error(`missing data/${CITY_ID}/${name}.js`)); document.head.append(s); });
+const unb64 = (str, T) => { const b = atob(str), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return new T(u.buffer); };
+let done = 0, total = 1;
+const tick = () => { $('bar').style.width = `${100 * ++done / total}%`; };
+const breathe = () => new Promise(r => setTimeout(r));
+
+// ---------------------------------------------------------------- renderer
+const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance', stencil:false });
+renderer.outputColorSpace = THREE.LinearSRGBColorSpace;   // the photo is already display-referred; we grade it ourselves
+const HAZE = new THREE.Color(.70, .77, .85);
+renderer.setClearColor(HAZE);
+document.body.prepend(renderer.domElement);
+let pixelRatio = Math.min(devicePixelRatio, 2);
+renderer.setPixelRatio(pixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+const camera = new THREE.PerspectiveCamera(42, innerWidth/innerHeight, 30, 70000);
+camera.rotation.order = 'YXZ';
+addEventListener('resize', () => { camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+const scene = new THREE.Scene();
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+
+// Tileable fbm noise, used for clouds, water ripples and leaf speckle.
+function noiseTexture(size = 256) {
+  const data = new Uint8Array(size*size*4);
+  const layer = (n, seed) => { const g = new Float32Array(n*n); let s = seed; for (let i = 0; i < n*n; i++) { s = (s*1664525+1013904223)>>>0; g[i] = s/4294967296; }
+    return (x, y) => { const fx = x*n, fy = y*n, ix = Math.floor(fx), iy = Math.floor(fy); let tx = fx-ix, ty = fy-iy; tx = tx*tx*(3-2*tx); ty = ty*ty*(3-2*ty);
+      const at = (a,b) => g[((b%n+n)%n)*n+((a%n+n)%n)];
+      return (at(ix,iy)*(1-tx)+at(ix+1,iy)*tx)*(1-ty)+(at(ix,iy+1)*(1-tx)+at(ix+1,iy+1)*tx)*ty; }; };
+  const ls = [4,8,16,32,64].map((n,i) => [layer(n,i*97+11), .5**i]);
+  const ls2 = [32,64,128].map((n,i) => [layer(n,i*53+7), .5**i]);
+  const sum = (arr,x,y) => arr.reduce((t,[f,w]) => t+f(x,y)*w, 0)/arr.reduce((t,[,w]) => t+w, 0);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) { const i = (y*size+x)*4;
+    data[i] = 255*sum(ls,x/size,y/size); data[i+1] = 255*sum(ls2,x/size,y/size); data[i+2] = 0; data[i+3] = 255; }
+  const t = new THREE.DataTexture(data, size, size); t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true; t.needsUpdate = true;
+  return t;
+}
+const shared = { uTime:{value:0}, uNoise:{value:noiseTexture()}, uSun:{value:SUN}, uHaze:{value:HAZE}, uGamma:{value:C.gamma}, uSat:{value:C.sat},
+  uTint:{value:new THREE.Vector3(...C.tint)}, uStoneA:{value:new THREE.Vector3(...C.stone[0])}, uStoneB:{value:new THREE.Vector3(...C.stone[1])}, uWall:{value:C.wall ?? 1}, uWaterFlat:{value:C.waterFlat ?? 0} };
+
+// ---------------------------------------------------------------- shaders
+const COMMON = /* glsl */`
+  uniform float uTime, uGamma, uSat, uWall, uWaterFlat; uniform sampler2D uNoise; uniform vec3 uSun, uHaze, uTint, uStoneA, uStoneB;
+  vec3 grade(vec3 c){                          // per-city: each survey has its own exposure, season and shadow depth
+    c = pow(c, vec3(uGamma)) * uTint;
+    float l = dot(c, vec3(.3,.59,.11));
+    return mix(vec3(l), c, uSat);
+  }
+  float cloudAt(vec2 p){ return texture2D(uNoise, p/9000. + vec2(uTime*.0009,uTime*.0004)).r*.72 + texture2D(uNoise, p/3100. - vec2(uTime*.0007,0.)).r*.28; }
+  float cloudShade(vec3 wp){                   // soft moving shadows from the cloud layer overhead
+    vec2 p = wp.xz - uSun.xz/uSun.y * (700. - wp.y);
+    return 1. - .26*smoothstep(.6,.72,cloudAt(p));
+  }
+  vec3 atmos(vec3 c, vec3 wp){                 // aerial perspective
+    float d = length(wp-cameraPosition);
+    return mix(c, uHaze, 1.-exp(-d*.000105));
+  }`;
+
+const groundMat = (map, rect, mask) => new THREE.ShaderMaterial({
+  uniforms:{ ...shared, map:{value:map}, uRect:{value:rect}, uMask:{value:mask}, uMaskRect:{value:maskRect} },
+  vertexShader:`varying vec3 vP; void main(){ vec4 w = modelMatrix*vec4(position,1.); vP = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
+  fragmentShader:`${COMMON}
+    uniform sampler2D map, uMask; uniform vec4 uRect, uMaskRect; varying vec3 vP;
+    void main(){
+      vec3 c = texture2D(map, (vP.xz-uRect.xy)/uRect.zw).rgb;
+      float w = texture2D(uMask, (vP.xz-uMaskRect.xy)/uMaskRect.zw).r;
+      c = grade(c);
+      if (w > .01) {
+        vec2 q = vP.xz; float t = uTime;
+        vec2 n = (texture2D(uNoise, q/70.+vec2(t*.012,t*.02)).gg + texture2D(uNoise, q/23.-vec2(t*.03,t*.015)).gg - 1.)*vec2(.20,.12);
+        float wl = dot(c,vec3(.3,.59,.11));
+        c = mix(c, wl*vec3(.74,1.,1.03)*1.12, uWaterFlat*w*smoothstep(.62,.38,wl));   // hides seams between survey flights; bright piers and ships keep their colour
+        vec3 N = normalize(vec3(n.x, 1., n.y)), V = normalize(cameraPosition-vP);
+        float spec = pow(max(dot(reflect(-uSun,N),V),0.), 240.);
+        float fres = .04+.96*pow(1.-max(dot(N,V),0.),5.);
+        vec3 water = mix(c*vec3(.78,.92,.95), vec3(.62,.74,.86), fres*.8+.1);
+        c = mix(c, water + spec*vec3(1.,.95,.84)*.45, w*.82);
+      }
+      gl_FragColor = vec4(atmos(c*cloudShade(vP), vP), 1.);
+    }`,
+});
+
+const farMat = map => new THREE.ShaderMaterial({
+  uniforms:{ ...shared, map:{value:map}, uFar:{value:0} },
+  vertexShader:`varying vec3 vP; varying vec2 vU; void main(){ vU = vec2(uv.x, 1.-uv.y); vec4 w = modelMatrix*vec4(position,1.); vP = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
+  fragmentShader:`${COMMON} uniform sampler2D map; varying vec3 vP; varying vec2 vU;
+    void main(){ vec3 c = grade(texture2D(map, vU).rgb); gl_FragColor = vec4(atmos(c*cloudShade(vP), vP),1.); }`,
+});
+
+const buildingMat = (map, rect, clip) => new THREE.ShaderMaterial({
+  side:THREE.DoubleSide, defines: clip ? { CLIP:1 } : {},
+  uniforms:{ ...shared, map:{value:map}, uRect:{value:rect} },
+  vertexShader:`attribute vec3 aN; attribute vec3 aW; varying vec3 vP,vN,vW;
+    void main(){ vN = aN; vW = aW; vec4 w = modelMatrix*vec4(position,1.); vP = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
+  fragmentShader:`${COMMON}
+    uniform sampler2D map; uniform vec4 uRect; varying vec3 vP,vN,vW;
+    void main(){
+      #ifdef CLIP
+      vec2 q = (vP.xz-uRect.xy)/uRect.zw; if (q.x<0.||q.y<0.||q.x>=1.||q.y>=1.) discard;
+      #endif
+      vec3 N = normalize(vN), c;
+      if (N.y > .5) {
+        // Roofs ARE the photo: every chimney and zinc sheet is real.
+        c = grade(texture2D(map, (vP.xz-uRect.xy)/uRect.zw).rgb);
+        // Survey photos lean: over a tall tower they show street, not roof. Above 60 m use a clean roof instead.
+        c = mix(c, mix(uStoneA,uStoneB,vW.z)*.82*(.8+.4*texture2D(uNoise, vP.xz/40.).g), smoothstep(45.,75.,vW.y));
+      } else {
+        // Walls: limestone tinted per building, windows drawn by floor + bay, and they fade out before they can alias.
+        vec3 stone = mix(uStoneA, uStoneB, vW.z);
+        vec2 g = vec2(vW.x/3.6, vW.y/3.4);
+        vec2 f = abs(fract(g)-.5);
+        float aa = max(fwidth(g.x), fwidth(g.y));
+        float win = (1.-smoothstep(.17,.25,f.x))*(1.-smoothstep(.24,.33,f.y));
+        win = mix(win*.72, .15+.12*step(.5,fract(vW.y/14.))*step(.5,fract(floor(vW.x/18.)*.5+.25)), smoothstep(.2,.6,aa));
+        vec3 glass = mix(vec3(.20,.22,.25), vec3(.44,.50,.56), fract(floor(g.x)*.37+floor(g.y)*.73));
+        c = mix(stone, glass, win);
+        float sun = max(dot(N,uSun),0.);
+        c *= uWall*(.46 + .78*sun);                          // same sun as the baked shadows
+        c *= mix(.42, 1., smoothstep(0., 16., vW.y));      // contact occlusion down in the street canyon
+      }
+      gl_FragColor = vec4(atmos(c*cloudShade(vP), vP),1.);
+    }`,
+});
+
+const treeMat = (map, rect) => new THREE.ShaderMaterial({
+  uniforms:{ ...shared, map:{value:map}, uRect:{value:rect} },
+  vertexShader:`${COMMON}
+    attribute vec4 aT; uniform sampler2D map; uniform vec4 uRect; varying vec3 vP,vN,vC;
+    void main(){
+      vec3 p = position*vec3(aT.w*.30, aT.w*.24, aT.w*.30);
+      p *= 1.+.22*sin(position.x*5.+aT.x)*sin(position.z*4.+aT.z)*sin(position.y*6.);
+      p.xz *= 1.+.18*sin(aT.x*.7+aT.z*.3);
+      vec3 w = vec3(aT.x, aT.y+aT.w*.66, aT.z)+p;
+      vP = w; vN = normalize(position*vec3(1.,1.15,1.));
+      // Crown colour comes from the photo underneath, so real tree species/season carry through.
+      vec3 s = textureLod(map, (aT.xz-uRect.xy)/uRect.zw, 2.5).rgb;
+      vC = mix(vec3(.21,.28,.14), grade(s), .62)*(.9+.3*fract(aT.x*.137+aT.z*.211));
+      gl_Position = projectionMatrix*viewMatrix*vec4(w,1.);
+    }`,
+  fragmentShader:`${COMMON}
+    varying vec3 vP,vN,vC;
+    void main(){
+      vec3 N = normalize(vN);
+      float leaf = texture2D(uNoise, vP.xz/9.+vP.y/7.).g;
+      vec3 c = vC*(.62+.62*max(dot(N,uSun),0.))*(.55+.9*leaf);
+      gl_FragColor = vec4(atmos(c*cloudShade(vP), vP),1.);
+    }`,
+});
+
+const modelMat = () => new THREE.ShaderMaterial({
+  side:THREE.DoubleSide,
+  uniforms:{ ...shared },
+  vertexShader:`attribute vec3 color; varying vec3 vP,vN,vC; void main(){ vN = normal; vC = color; vec4 w = modelMatrix*vec4(position,1.); vP = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
+  fragmentShader:`${COMMON} varying vec3 vP,vN,vC;
+    void main(){
+      vec3 N = normalize(vN);
+      float s = max(dot(N,uSun),0.);
+      vec3 c = vC*(.42+.95*s);
+      gl_FragColor = vec4(atmos(c*cloudShade(vP), vP),1.);
+    }`,
+});
+
+// ---------------------------------------------------------------- world build
+let META, terrain, maskRect;
+const heightAt = (x, z) => {
+  const t = terrain; const fx = Math.max(0,Math.min(t.w-1.001,(x-t.x0)/t.sx*(t.w-1))), fz = Math.max(0,Math.min(t.h-1.001,(z-t.z0)/t.sz*(t.h-1)));
+  const ix = fx|0, iz = fz|0, tx = fx-ix, tz = fz-iz, d = t.d, w = t.w;
+  return (d[iz*w+ix]*(1-tx)+d[iz*w+ix+1]*tx)*(1-tz)+(d[(iz+1)*w+ix]*(1-tx)+d[(iz+1)*w+ix+1]*tx)*tz;
+};
+const R = 6378137;
+const toWorld = (lat, lon) => { const k = Math.cos(META.lat0*Math.PI/180), m = (a) => R*Math.log(Math.tan(Math.PI/4+a*Math.PI/360));
+  return [ R*(lon-META.lon0)*Math.PI/180*k, -(m(lat)-m(META.lat0))*k ]; };
+const chunkRect = (r, c) => { const cw = META.W/META.cols, ch = META.H/META.rows; return new THREE.Vector4(-META.W/2+c*cw, -META.H/2+r*ch, cw, ch); };
+
+async function waterMask() {
+  maskRect = new THREE.Vector4(-META.W/2, -META.H/2, META.W, META.H);
+  if (T3.watermask) {                       // baked as an image where a shoreline has no polygons
+    const bmp = await createImageBitmap(await (await fetch(T3.watermask)).blob(), { imageOrientation:'none', colorSpaceConversion:'none' });
+    const t = new THREE.Texture(bmp); t.flipY = false; t.needsUpdate = true; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.colorSpace = THREE.NoColorSpace;
+    delete T3.watermask; return t;
+  }
+  const W = T3.water, rc = unb64(W.rc, Uint16Array), pts = unb64(W.pts, Uint16Array), xy = unb64(W.xy, Float32Array);
+  const cv = document.createElement('canvas'); cv.width = 4096; cv.height = Math.round(4096*META.H/META.W);
+  const g = cv.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0,0,cv.width,cv.height);
+  const sx = cv.width/META.W, sz = cv.height/META.H; let rp = 0, cp = 0;
+  g.fillStyle = '#fff'; g.filter = 'blur(1.2px)';
+  for (let i = 0; i < W.n; i++) { g.beginPath();
+    for (let k = 0; k < rc[i]; k++) { const n = pts[rp++];
+      for (let j = 0; j < n; j++, cp += 2) { const X = (xy[cp]+META.W/2)*sx, Y = (xy[cp+1]+META.H/2)*sz; j ? g.lineTo(X,Y) : g.moveTo(X,Y); } g.closePath(); }
+    g.fill('evenodd'); }
+  const t = new THREE.CanvasTexture(cv); t.flipY = false; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.colorSpace = THREE.NoColorSpace;
+  return t;
+}
+
+async function loadTexture(key) {
+  await loadScript(key);
+  const res = await fetch(T3[key]); delete T3[key];      // data: URL fetch is allowed from file://
+  const bmp = await createImageBitmap(await res.blob(), { imageOrientation:'none', colorSpaceConversion:'none' });
+  const t = new THREE.Texture(bmp); t.flipY = false; t.needsUpdate = true; t.colorSpace = THREE.NoColorSpace;
+  t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.anisotropy = maxAniso;
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  renderer.initTexture(t); tick(); await breathe();
+  return t;
+}
+
+function buildGround(maps, mask) {
+  const { rows, cols } = META, segs = 80;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const rect = chunkRect(r,c), g = new THREE.PlaneGeometry(rect.z, rect.w, segs, segs); g.rotateX(-Math.PI/2);
+    const p = g.attributes.position, cx = rect.x+rect.z/2, cz = rect.y+rect.w/2;
+    for (let i = 0; i < p.count; i++) { const x = p.getX(i)+cx, z = p.getZ(i)+cz; p.setXYZ(i, x, heightAt(x,z), z); }
+    g.computeBoundingSphere();
+    scene.add(new THREE.Mesh(g, groundMat(maps[r][c], rect, mask)));
+  }
+}
+
+async function buildBuildings(maps) {
+  const B = T3.buildings, rc = unb64(B.rc, Uint16Array), pts = unb64(B.pts, Uint16Array), xy = unb64(B.xy, Float32Array), hs = unb64(B.h, Float32Array);
+  const { rows, cols, W, H } = META, cw = W/cols, ch = H/rows;
+  // pass 1: assign every building to a chunk and count, so we can allocate once
+  // Buildings crossing a chunk edge are drawn once per chunk they touch, clipped in the shader (else their roofs
+  // smear the photo's edge pixels). They get their own meshes so the discard doesn't cost early-Z on everything else.
+  const cells = Array.from({length:rows*cols*2}, () => ({ polys:[], v:0, i:0 }));
+  const excl = (C.exclude||[]).map(([la,lo,r]) => [...toWorld(la,lo), r]);
+  let rp = 0, cp = 0;
+  for (let i = 0; i < B.n; i++) {
+    const ringStart = rp, coordStart = cp; let v = 0, idx = 0, sx = 0, sz = 0, x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+    for (let k = 0; k < rc[i]; k++) { const n = pts[rp++];
+      if (k === 0) { for (let j = 0; j < n; j++) { const X = xy[cp+j*2], Z = xy[cp+j*2+1]; sx += X; sz += Z; x0 = Math.min(x0,X); x1 = Math.max(x1,X); z0 = Math.min(z0,Z); z1 = Math.max(z1,Z); } sx /= n; sz /= n; }
+      cp += n*2; v += n*5; idx += n*9 + (k ? 6 : -6); }
+    if (excl.some(([x,z,r]) => Math.hypot(sx-x, sz-z) < r)) continue;     // footprints under a hand-built landmark
+    const clampC = a => Math.min(cols-1, Math.max(0, Math.floor((a+W/2)/cw))), clampR = a => Math.min(rows-1, Math.max(0, Math.floor((a+H/2)/ch)));
+    const c0 = clampC(x0), c1 = clampC(x1), r0 = clampR(z0), r1 = clampR(z1), seam = c0 !== c1 || r0 !== r1;
+    for (let rr = r0; rr <= r1; rr++) for (let cc = c0; cc <= c1; cc++) {
+      const cell = cells[(seam ? rows*cols : 0)+rr*cols+cc]; cell.polys.push(i, ringStart, coordStart, sx, sz); cell.v += v; cell.i += idx; }
+  }
+  for (let seam = 0; seam < 2; seam++) for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const cell = cells[seam*rows*cols+r*cols+c]; if (!cell.polys.length) continue;
+    const P = new Float32Array(cell.v*3), N = new Int8Array(cell.v*3), A = new Float32Array(cell.v*3), I = new Uint32Array(cell.i);
+    let vi = 0, ii = 0;
+    for (let q = 0; q < cell.polys.length; q += 5) {
+      const i = cell.polys[q]; let rr = cell.polys[q+1], cc = cell.polys[q+2]; const sx = cell.polys[q+3], sz = cell.polys[q+4];
+      const base = heightAt(sx,sz), y0 = base-4, y1 = base+hs[i], tint = (Math.abs(Math.sin(sx*12.9898+sz*78.233))*43758.5)%1;
+      const contour = [], holes = [];
+      for (let k = 0; k < rc[i]; k++) {
+        const n = pts[rr++]; const ring = [];
+        let area = 0; for (let j = 0; j < n; j++) { const a = cc+j*2, b = cc+((j+1)%n)*2; area += xy[a]*xy[b+1]-xy[b]*xy[a+1]; }
+        const out = (area > 0 ? 1 : -1)*(k === 0 ? 1 : -1);
+        let along = 0;
+        for (let j = 0; j < n; j++) {
+          const a = cc+j*2, b = cc+((j+1)%n)*2, ax = xy[a], az = xy[a+1], bx = xy[b], bz = xy[b+1];
+          ring.push(new THREE.Vector2(ax,az));
+          const dx = bx-ax, dz = bz-az, L = Math.hypot(dx,dz)||1, nx = Math.round(127*out*dz/L), nz = Math.round(-127*out*dx/L);
+          const hh = y1-y0, s = vi;
+          P[vi*3]=ax;P[vi*3+1]=y0;P[vi*3+2]=az; A[vi*3]=along;  A[vi*3+1]=-4;   A[vi*3+2]=tint; N[vi*3]=nx;N[vi*3+2]=nz; vi++;
+          P[vi*3]=bx;P[vi*3+1]=y0;P[vi*3+2]=bz; A[vi*3]=along+L;A[vi*3+1]=-4;   A[vi*3+2]=tint; N[vi*3]=nx;N[vi*3+2]=nz; vi++;
+          P[vi*3]=bx;P[vi*3+1]=y1;P[vi*3+2]=bz; A[vi*3]=along+L;A[vi*3+1]=hh-4; A[vi*3+2]=tint; N[vi*3]=nx;N[vi*3+2]=nz; vi++;
+          P[vi*3]=ax;P[vi*3+1]=y1;P[vi*3+2]=az; A[vi*3]=along;  A[vi*3+1]=hh-4; A[vi*3+2]=tint; N[vi*3]=nx;N[vi*3+2]=nz; vi++;
+          I[ii++]=s;I[ii++]=s+1;I[ii++]=s+2;I[ii++]=s;I[ii++]=s+2;I[ii++]=s+3;
+          along += L;
+        }
+        (k === 0 ? contour.push(...ring) : holes.push(ring));
+        cc += n*2;
+      }
+      const roofStart = vi;
+      for (const p of contour) { P[vi*3]=p.x;P[vi*3+1]=y1;P[vi*3+2]=p.y; A[vi*3+1]=hs[i];A[vi*3+2]=tint; N[vi*3+1]=127; vi++; }
+      for (const h of holes) for (const p of h) { P[vi*3]=p.x;P[vi*3+1]=y1;P[vi*3+2]=p.y; A[vi*3+1]=hs[i];A[vi*3+2]=tint; N[vi*3+1]=127; vi++; }
+      for (const f of THREE.ShapeUtils.triangulateShape(contour, holes)) { I[ii++]=roofStart+f[0];I[ii++]=roofStart+f[1];I[ii++]=roofStart+f[2]; }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(P.subarray(0,vi*3),3));
+    g.setAttribute('aN', new THREE.BufferAttribute(N.subarray(0,vi*3),3,true));
+    g.setAttribute('aW', new THREE.BufferAttribute(A.subarray(0,vi*3),3));
+    g.setIndex(new THREE.BufferAttribute(I.subarray(0,ii),1));
+    g.computeBoundingSphere();
+    scene.add(new THREE.Mesh(g, buildingMat(maps[r][c], chunkRect(r,c), !!seam)));
+    if (!seam) tick(); await breathe();
+  }
+  delete T3.buildings;
+}
+
+function buildTrees(maps) {
+  if (!T3.trees.n) return;
+  const T = T3.trees, d = unb64(T.d, Float32Array), { rows, cols, W, H } = META, cw = W/cols, ch = H/rows;
+  const cells = Array.from({length:rows*cols}, () => []);
+  for (let i = 0; i < T.n; i++) { const x = d[i*3], z = d[i*3+1], h = d[i*3+2];
+    const c = Math.floor((x+W/2)/cw), r = Math.floor((z+H/2)/ch); if (c<0||r<0||c>=cols||r>=rows) continue;
+    cells[r*cols+c].push(x, heightAt(x,z), z, h); }
+  const crown = new THREE.IcosahedronGeometry(1, 1);
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) { const a = cells[r*cols+c]; if (!a.length) continue;
+    const g = new THREE.InstancedBufferGeometry(); g.index = crown.index; g.setAttribute('position', crown.attributes.position);
+    g.setAttribute('aT', new THREE.InstancedBufferAttribute(new Float32Array(a),4)); g.instanceCount = a.length/4;
+    const rect = chunkRect(r,c);
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(rect.x+rect.z/2,60,rect.y+rect.w/2), Math.hypot(rect.z,rect.w)/2+60);
+    const m = new THREE.Mesh(g, treeMat(maps[r][c], rect)); scene.add(m);
+  }
+  delete T3.trees;
+}
+
+// Hand-built lattice tower. Real proportions: 330 m tall, 125 m base, platforms at 57/115/276 m.
+function addModel(geo, lat, lon, rotY=0) {
+  const m = new THREE.Mesh(geo, modelMat()), [x,z] = toWorld(lat, lon);
+  m.position.set(x, heightAt(x,z)-1, z); m.rotation.y = rotY; m.updateMatrixWorld(); scene.add(m);
+}
+const paint = (g, fn) => { const p = g.attributes.position, c = new Float32Array(p.count*3);
+  for (let i = 0; i < p.count; i++) c.set(fn(p.getX(i),p.getY(i),p.getZ(i)), i*3);
+  g.setAttribute('color', new THREE.BufferAttribute(c,3)); return g; };
+
+function buildTVTower(lat, lon) {         // 368 m: flared concrete shaft, steel sphere, red-and-white mast
+  const shaft = [[17,0],[13,8],[9.5,30],[7.5,80],[6.2,150],[5.6,195],[5.2,200],[5.2,226],[3.6,232],[2.8,250],[1.6,262],[1.1,300],[.75,368],[0,368]].map(([r,y]) => new THREE.Vector2(r,y));
+  const a = new THREE.LatheGeometry(shaft, 24); a.computeVertexNormals();
+  paint(a, (x,y) => y < 250 ? [.78,.77,.74] : (Math.floor(y/16)%2 ? [.82,.13,.10] : [.9,.9,.88]));
+  addModel(a, lat, lon);
+  const b = new THREE.SphereGeometry(16, 32, 20); b.translate(0,212,0); paint(b, () => [.72,.74,.77]); addModel(b, lat, lon);
+}
+function buildRainbow(lat, lon) {         // Your Rainbow Panorama: a 52 m walkway ring on the museum roof
+  const y = 46, g = new THREE.TorusGeometry(26, 2.4, 10, 96); g.rotateX(Math.PI/2); g.scale(1,1.3,1); g.translate(0,y,0);
+  const col = new THREE.Color();
+  paint(g, (x,_,z) => { col.setHSL(((Math.atan2(z,x)/(2*Math.PI))+1)%1, .95, .58); return [col.r*1.35,col.g*1.35,col.b*1.35]; });
+  addModel(g, lat, lon);
+}
+function buildEiffel() {
+  const pos = [], nor = [];
+  const quad = (a,b,c,d,n) => { for (const p of [a,b,c,a,c,d]) { pos.push(p.x,p.y,p.z); nor.push(n.x,n.y,n.z); } };
+  const v = (x,y,z) => new THREE.Vector3(x,y,z);
+  const beam = (a, b, t) => {           // 4-sided strut from a to b
+    const d = b.clone().sub(a).normalize(), s = Math.abs(d.y) > .9 ? v(1,0,0) : v(0,1,0);
+    const u = d.clone().cross(s).normalize().multiplyScalar(t/2), w = d.clone().cross(u).normalize().multiplyScalar(t/2);
+    const cs = [u.clone().add(w), u.clone().sub(w), u.clone().negate().sub(w), u.clone().negate().add(w)];
+    for (let i = 0; i < 4; i++) { const p = cs[i], q = cs[(i+1)%4], n = p.clone().add(q).normalize();
+      quad(a.clone().add(p), a.clone().add(q), b.clone().add(q), b.clone().add(p), n); }
+  };
+  const box = (cx,cy,cz,hx,hy,hz) => {
+    const P = (a,b,c) => v(cx+a*hx,cy+b*hy,cz+c*hz);
+    quad(P(-1,1,-1),P(1,1,-1),P(1,1,1),P(-1,1,1),v(0,1,0)); quad(P(-1,-1,1),P(1,-1,1),P(1,1,1),P(-1,1,1),v(0,0,1));
+    quad(P(-1,-1,-1),P(1,-1,-1),P(1,1,-1),P(-1,1,-1),v(0,0,-1)); quad(P(1,-1,-1),P(1,-1,1),P(1,1,1),P(1,1,-1),v(1,0,0)); quad(P(-1,-1,-1),P(-1,-1,1),P(-1,1,1),P(-1,1,-1),v(-1,0,0));
+  };
+  const outer = h => 62.5*Math.exp(-h/96);                  // the famous exponential curve
+  const legW = h => h < 200 ? Math.max(4, 25*Math.exp(-h/110)) : 3.5;
+  const levels = []; for (let h = 0; h < 276; h += h < 115 ? 6 : 9) levels.push(h); levels.push(276);
+  for (const sx of [-1,1]) for (const sz of [-1,1]) {
+    const corner = (h,i,j) => { const o = outer(h), w = legW(h); return v(sx*(o-(i?w:0)), h, sz*(o-(j?w:0))); };
+    for (let L = 0; L < levels.length-1; L++) { const h0 = levels[L], h1 = levels[L+1], t = h0 < 115 ? 1.5 : 1.05;
+      for (const [i,j] of [[0,0],[1,0],[0,1],[1,1]]) {
+        beam(corner(h0,i,j), corner(h1,i,j), t*1.5);
+        const [a,b] = i === j ? [[1-i,j],[i,1-j]] : [[j,i],[i,j]];
+        beam(corner(h0,i,j), corner(h1,a[0],a[1]), t*.8);       // cross-bracing
+        beam(corner(h0,b[0],b[1]), corner(h1,i,j), t*.8);
+        beam(corner(h1,0,0), corner(h1,1,0), t*.7); beam(corner(h1,0,1), corner(h1,1,1), t*.7);
+        beam(corner(h1,0,0), corner(h1,0,1), t*.7); beam(corner(h1,1,0), corner(h1,1,1), t*.7);
+      }
+    }
+    // Iconic arch below the first platform, on the two sides of each leg
+    for (const axis of [0,1]) { const N = 14; for (let i = 0; i < N; i++) {
+      const pt = k => { const u = k/N, w = Math.cos(u*Math.PI/2), hh = 39*Math.sin(u*Math.PI/2)+2, o = outer(hh)-legW(hh);
+        return axis ? v(sx*o, hh, sz*w*o*.999) : v(sx*w*o*.999, hh, sz*o); };
+      beam(pt(i), pt(i+1), 1.8); } }
+  }
+  const ring = (h, half, thick, d) => {
+    box(0,h,half-d/2,half,thick,d/2); box(0,h,-half+d/2,half,thick,d/2); box(half-d/2,h,0,d/2,thick,half); box(-half+d/2,h,0,d/2,thick,half);
+  };
+  ring(57, outer(57)+3, 3.5, 17); ring(115, outer(115)+2.5, 3, 12);
+  box(0,276,0,outer(276)+4,3,outer(276)+4);
+  box(0,286,0,5.5,7,5.5);
+  for (let h = 293; h < 322; h += 6) box(0,h+3,0,3-(h-293)*.07,3,3-(h-293)*.07);
+  box(0,326,0,.9,5,.9);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor,3));
+  paint(g, () => [.40,.325,.255]);                          // "Eiffel brown"
+  addModel(g, 48.85826, 2.29450, Math.PI/4+.04);            // the square is turned about 45° from true north
+}
+
+function buildSky() {
+  // One translucent cloud deck under the aircraft: strong parallax, one quad of overdraw.
+  const g = new THREE.PlaneGeometry(50000,50000); g.rotateX(-Math.PI/2);
+  const m = new THREE.Mesh(g, new THREE.ShaderMaterial({ transparent:true, depthWrite:false, side:THREE.DoubleSide, uniforms:{...shared},
+    vertexShader:`varying vec3 vP; void main(){ vec4 w = modelMatrix*vec4(position,1.); vP = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
+    fragmentShader:`${COMMON} varying vec3 vP;
+      void main(){
+        float n = cloudAt(vP.xz);
+        float det = texture2D(uNoise, vP.xz/620.+uTime*.002).r;
+        float a = smoothstep(.61,.78, n+(det-.5)*.12);
+        vec3 c = mix(vec3(.84,.87,.91), vec3(1.), smoothstep(.58,.8,n));
+        gl_FragColor = vec4(atmos(c,vP), a*.62);
+      }` }));
+  m.position.y = 700; m.renderOrder = 10; m.frustumCulled = false; scene.add(m);
+  return m;
+}
+function buildDome() {        // only ever seen in free flight: the plane's own camera never reaches the horizon
+  const m = new THREE.Mesh(new THREE.SphereGeometry(60000, 32, 16), new THREE.ShaderMaterial({ side:THREE.BackSide, depthWrite:false, depthTest:false, uniforms:{...shared},
+    vertexShader:`varying vec3 vD; void main(){ vD = position; gl_Position = projectionMatrix*viewMatrix*vec4(position+cameraPosition,1.); }`,
+    fragmentShader:`uniform vec3 uHaze, uSun; varying vec3 vD;
+      void main(){
+        vec3 d = normalize(vD);
+        vec3 c = mix(uHaze, vec3(.27,.46,.72), smoothstep(.0,.42,d.y));
+        float s = max(dot(d,uSun),0.);
+        c += vec3(1.,.93,.8)*(pow(s,900.)*1.6 + pow(s,14.)*.16);
+        gl_FragColor = vec4(c,1.);
+      }` }));
+  m.frustumCulled = false; m.renderOrder = -2; scene.add(m);
+}
+
+// ---------------------------------------------------------------- flight
+let curve, curveLen, flightU = 0, altNow = ALTS[0], altGoal = ALTS[0], groundY = 0, clouds;
+const pos = new THREE.Vector3(), ahead = new THREE.Vector3(), behind = new THREE.Vector3();
+function buildRoute() {
+  curve = new THREE.CatmullRomCurve3(ROUTE.map(([la,lo]) => { const [x,z] = toWorld(la,lo); return new THREE.Vector3(x,0,z); }), true, 'centripetal');
+  curve.arcLengthDivisions = 2000; curveLen = curve.getLength();
+  groundY = heightAt(0,0);
+}
+function fly(dt, t) {
+  flightU = (flightU + dt*SPEED/curveLen) % 1;
+  altNow += (altGoal-altNow)*(1-Math.exp(-dt*.42));
+  curve.getPointAt(flightU, pos);
+  curve.getPointAt((flightU+90/curveLen)%1, ahead);
+  curve.getPointAt((flightU-90/curveLen+1)%1, behind);
+  const a0 = Math.atan2(pos.x-behind.x, pos.z-behind.z), a1 = Math.atan2(ahead.x-pos.x, ahead.z-pos.z);
+  let turn = a1-a0; turn = Math.atan2(Math.sin(turn),Math.cos(turn));
+  const yaw = Math.atan2(ahead.x-behind.x, ahead.z-behind.z)+Math.PI;
+  // Slow air-pocket wander; two incommensurate sines so it never visibly repeats.
+  const w = .5*Math.sin(t*.31)+.5*Math.sin(t*.13+1.7), w2 = .5*Math.sin(t*.23+.4)+.5*Math.sin(t*.083);
+  camera.position.set(pos.x, groundY+altNow+w*7, pos.z);
+  camera.rotation.set(-1.02+w2*.012, yaw+w*.01, -turn*1.7+w2*.012);
+  clouds.position.y = groundY+Math.min(altNow-170, 620);
+  clouds.position.x = pos.x; clouds.position.z = pos.z;
+  clouds.visible = true;
+  $('alt').textContent = String(Math.round(altNow));
+  let hdg = (360-yaw*180/Math.PI)%360; $('hdg').textContent = `HDG ${String(Math.round(hdg)).padStart(3,'0')}°`;
+}
+
+// ---------------------------------------------------------------- free flight, once the round is over
+const free = { on:false, vel:new THREE.Vector3(), keys:new Set(), speed:90 };
+const FLY_KEYS = new Set(['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','Space','KeyC','ShiftLeft','ShiftRight','ArrowUp','ArrowDown','ArrowLeft','ArrowRight']);
+const fwd = new THREE.Vector3(), right = new THREE.Vector3(), wish = new THREE.Vector3();
+const canFly = () => state.over;
+function takeControl() {                 // the plane keeps flying until you first touch the controls
+  if (!canFly() || free.on) return;
+  free.on = true; document.activeElement?.blur?.();
+}
+const setFlying = v => document.body.classList.toggle('flying', v);
+function freeFly(dt) {
+  const k = free.keys, on = (...c) => c.some(x => k.has(x));
+  camera.rotation.z *= Math.exp(-dt*3);  // ease out of the plane's bank
+  camera.getWorldDirection(fwd); right.crossVectors(fwd, camera.up).normalize();
+  wish.set(0,0,0)
+    .addScaledVector(fwd, (on('KeyW','ArrowUp')?1:0)-(on('KeyS','ArrowDown')?1:0))
+    .addScaledVector(right, (on('KeyD','ArrowRight')?1:0)-(on('KeyA','ArrowLeft')?1:0));
+  wish.y += (on('KeyE','Space')?1:0)-(on('KeyQ','KeyC')?1:0);
+  if (wish.lengthSq() > 1) wish.normalize();
+  wish.multiplyScalar(free.speed*(on('ShiftLeft','ShiftRight')?7:1));
+  free.vel.lerp(wish, 1-Math.exp(-dt*(wish.lengthSq() ? 5 : 3.5)));    // a little weight, and a glide when you let go
+  camera.position.addScaledVector(free.vel, dt);
+  // Noclip through buildings, but stay above the ground and over the data.
+  const lim = META.far/2*.92, p = camera.position;
+  p.x = Math.max(-lim,Math.min(lim,p.x)); p.z = Math.max(-lim,Math.min(lim,p.z));
+  const ground = heightAt(p.x,p.z);
+  p.y = Math.max(ground+2.5, Math.min(ground+9000, p.y));
+  const agl = p.y-ground, near = Math.max(1, Math.min(30, agl*.08));     // tighter near plane only when you're close to things
+  if (Math.abs(near-camera.near) > camera.near*.1) { camera.near = near; camera.updateProjectionMatrix(); }
+  clouds.position.x = p.x; clouds.position.z = p.z;
+  $('alt').textContent = String(Math.round(agl));
+  const c = (Math.atan2(fwd.x,-fwd.z)*180/Math.PI+360)%360;
+  $('hdg').textContent = `HDG ${String(Math.round(c)%360).padStart(3,'0')}°`;
+}
+function look(dx, dy) {
+  takeControl(); if (!free.on) return;
+  const r = camera.rotation;
+  r.y -= dx*.0021; r.x = Math.max(-1.55, Math.min(1.55, r.x-dy*.0021));
+}
+function capture() {
+  if (!canFly()) return;
+  takeControl();
+  const el = renderer.domElement;
+  try { const p = el.requestPointerLock?.(); p?.catch?.(() => {}); } catch {}
+  setFlying(true);
+}
+renderer.domElement.addEventListener('mousedown', capture);
+document.addEventListener('pointerlockchange', () => { free.keys.clear(); setFlying(document.pointerLockElement === renderer.domElement); });
+document.addEventListener('mousemove', e => {
+  if (document.pointerLockElement === renderer.domElement || (e.buttons && e.target === renderer.domElement)) look(e.movementX, e.movementY);   // drag still looks if the lock is refused
+});
+addEventListener('wheel', e => { if (free.on) free.speed = Math.max(10, Math.min(900, free.speed*Math.exp(-e.deltaY*.001))); }, { passive:true });
+addEventListener('keydown', e => {
+  if (!canFly() || e.ctrlKey || e.metaKey || !FLY_KEYS.has(e.code)) return;
+  e.preventDefault(); free.keys.add(e.code);
+  if (!e.code.startsWith('Shift')) { takeControl(); setFlying(true); }
+});
+addEventListener('keyup', e => { free.keys.delete(e.code); if (e.code === 'Escape' && !document.pointerLockElement) setFlying(false); });
+addEventListener('blur', () => free.keys.clear());
+
+// ---------------------------------------------------------------- game
+const state = { guesses:[], over:false };
+const hav = (a,b) => { const r = Math.PI/180, dLa = (b.lat-a.lat)*r, dLo = (b.lon-a.lon)*r, s = Math.sin(dLa/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dLo/2)**2; return 2*6371*Math.asin(Math.sqrt(s)); };
+const bearing = (a,b) => { const r = Math.PI/180, y = Math.sin((b.lon-a.lon)*r)*Math.cos(b.lat*r), x = Math.cos(a.lat*r)*Math.sin(b.lat*r)-Math.sin(a.lat*r)*Math.cos(b.lat*r)*Math.cos((b.lon-a.lon)*r); return (Math.atan2(y,x)/r+360)%360; };
+const ARROWS = ['⬆️','↗️','➡️','↘️','⬇️','↙️','⬅️','↖️'];
+const norm = s => s.toLowerCase().replace(/å/g,'aa').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();
+let matches = [], sel = 0;
+
+function renderSug() {
+  const s = norm($('q').value);
+  const used = new Set(state.guesses.map(g => g.city.name));
+  matches = !s || state.over ? [] : CITIES.filter(c => !used.has(c.name) && norm(c.name).includes(s))
+    .sort((a,b) => norm(b.name).startsWith(s)-norm(a.name).startsWith(s)).slice(0,6);
+  sel = Math.min(sel, Math.max(0,matches.length-1));
+  $('sug').replaceChildren(...matches.map((c,i) => { const li = document.createElement('li'); li.className = i===sel?'on':''; li.innerHTML = `${c.name}<small>${c.country}</small>`;
+    li.onmousedown = e => { e.preventDefault(); guess(c); }; return li; }));
+}
+function guess(city) {
+  if (state.over) return;
+  const km = hav(city, ANSWER), hit = city.name === ANSWER.name;
+  const g = { city, km, hit, dir: ARROWS[Math.round(bearing(city,ANSWER)/45)%8], pct: Math.max(0,Math.round(100*(1-km/20015))) };
+  state.guesses.push(g);
+  const row = document.createElement('div'); row.className = 'row'+(hit?' hit':'');
+  row.innerHTML = `<span class="city">${city.name}</span><span class="mono">${hit?'':Math.round(km).toLocaleString('en')+' km'}</span><span class="dir">${hit?'🎯':g.dir}</span><span class="pct mono">${g.pct}%</span>`;
+  $('rows').append(row);
+  while ($('rows').children.length > 3) $('rows').firstChild.remove();   // keep the view clear
+  $('q').value = ''; sel = 0; renderSug();
+  $('count').textContent = `${state.guesses.length}/${MAX_GUESSES}`;
+  if (hit || state.guesses.length >= MAX_GUESSES) return endGame(hit);
+  altGoal = ALTS[state.guesses.length];
+}
+function endGame(won) {
+  state.over = true; altGoal = 620;
+  $('box').style.display = 'none'; $('end').style.display = 'block';
+  $('endT').textContent = `${ANSWER.name}, ${ANSWER.country}`;
+  $('endS').textContent = won ? `Spotted from ${Math.round(altNow).toLocaleString('en')} m, in ${state.guesses.length} of ${MAX_GUESSES}.` : `Out of guesses. The plane has seen enough.`;
+  $('credits').textContent = C.credits;
+  pins.forEach(p => p.el.style.display = 'block');
+}
+$('freeFly').onclick = capture;
+$('again').onclick = () => { location.search = `?city=${ROTATION[(ROTATION.indexOf(CITY_ID)+1)%ROTATION.length]}`; };
+$('share').onclick = async e => {
+  const grid = state.guesses.map(g => g.hit ? '🟩🎯' : `${'🟨'.repeat(Math.max(1,Math.round(g.pct/20)))} ${g.dir}`).join('\n');
+  try { await navigator.clipboard.writeText(`Turtle 3D ${state.guesses.at(-1).hit?state.guesses.length:'X'}/${MAX_GUESSES}\n${grid}`); e.target.textContent = 'Copied'; } catch { e.target.textContent = 'Copy failed'; }
+  setTimeout(() => e.target.textContent = 'Copy result', 1400);
+};
+$('q').addEventListener('input', () => { sel = 0; renderSug(); });
+$('q').addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') { sel = Math.min(sel+1, matches.length-1); renderSug(); e.preventDefault(); }
+  if (e.key === 'ArrowUp') { sel = Math.max(sel-1, 0); renderSug(); e.preventDefault(); }
+  if (e.key === 'Enter' && matches[sel]) guess(matches[sel]);
+});
+addEventListener('keydown', e => { if (e.key === 'F2') { const f = $('fps'); f.style.display = f.style.display === 'inline' ? 'none' : 'inline'; } });
+
+let pins = [];
+function buildPins() {
+  pins = LANDMARKS.map(([name,la,lo,top=40]) => { const [x,z] = toWorld(la,lo), el = document.createElement('div'); el.className = 'pin'; el.textContent = name; el.style.display = 'none'; document.body.append(el);
+    return { el, p:new THREE.Vector3(x, heightAt(x,z)+top, z) }; });
+}
+const tmp = new THREE.Vector3();
+function updatePins() {
+  if (!state.over) return;
+  for (const { el, p } of pins) { tmp.copy(p).project(camera);
+    const on = tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1; el.style.display = on ? 'block' : 'none';
+    if (on) { el.style.left = `${(tmp.x+1)/2*innerWidth}px`; el.style.top = `${(1-tmp.y)/2*innerHeight-18}px`; } }
+}
+
+// ---------------------------------------------------------------- loop, with a governor that protects 60 fps
+const stats = { frames:0, ms:0, worst:0, recent:[] };
+let last = performance.now(), fpsT = 0, fpsN = 0, slow = 0, frozen = false;
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(.1,(now-last)/1000); last = now;
+  if (!frozen) { shared.uTime.value += dt; free.on ? freeFly(dt) : fly(dt, shared.uTime.value); }
+  renderer.render(scene, camera);
+  updatePins();
+  stats.frames++; stats.ms += dt*1000; stats.worst = Math.max(stats.worst, dt*1000);
+  fpsN++; fpsT += dt;
+  if (fpsT >= 1) {
+    const fps = fpsN/fpsT; $('fps').textContent = `${fps.toFixed(0)} fps · ${pixelRatio.toFixed(2)}x`;
+    slow = fps < 54 ? slow+1 : 0;
+    if (slow >= 2 && pixelRatio > .75 && !params.has('noadapt')) { pixelRatio = Math.max(.75, pixelRatio*.85); renderer.setPixelRatio(pixelRatio); slow = 0; }
+    fpsN = fpsT = 0;
+  }
+}
+
+// ---------------------------------------------------------------- boot
+(async () => {
+  try {
+    await loadScript('meta'); META = T3.meta;
+    const keys = []; for (let r = 0; r < META.rows; r++) for (let c = 0; c < META.cols; c++) keys.push(`g${r}${c}`);
+    total = 4 + keys.length + 1 + META.rows*META.cols;
+    $('loadMsg').textContent = 'Fetching the ground';
+    await loadScript('terrain'); terrain = { ...T3.terrain, d:unb64(T3.terrain.d, Float32Array) }; delete T3.terrain; tick();
+    await loadScript('water'); const mask = await waterMask(); tick();
+    await loadScript('buildings'); tick(); await loadScript('trees'); tick();
+    const flat = [];
+    for (let i = 0; i < keys.length; i += 4) flat.push(...await Promise.all(keys.slice(i,i+4).map(loadTexture)));
+    const maps = []; for (let r = 0; r < META.rows; r++) maps.push(flat.slice(r*META.cols,(r+1)*META.cols));
+    const far = await loadTexture('far');
+    $('loadMsg').textContent = 'Raising the city';
+    buildGround(maps, mask);
+    const fg = new THREE.PlaneGeometry(META.far, META.far); fg.rotateX(-Math.PI/2);
+    const fm = new THREE.Mesh(fg, farMat(far)); fm.position.y = terrain.d.reduce((a,b) => Math.min(a,b), 1e9)-6;
+    fm.material.depthWrite = false; fm.renderOrder = -1; fm.frustumCulled = false; scene.add(fm);
+    // Far ring UVs run north-down, same as the image rows.
+    await buildBuildings(maps); buildTrees(maps); C.model?.();
+    clouds = buildSky(); buildDome(); buildRoute(); buildPins();
+    flightU = params.has('u') ? +params.get('u') : .02;
+    altNow = altGoal = ALTS[0];
+    if (params.has('alt')) altNow = altGoal = +params.get('alt');
+    fly(0, 0);
+    renderer.compile(scene, camera);
+    $('count').textContent = `0/${MAX_GUESSES}`;
+    last = performance.now(); requestAnimationFrame(frame);
+    $('load').style.opacity = 0; setTimeout(() => $('load').remove(), 950);
+    if (!params.has('nofocus')) $('q').focus();
+    window.__t3 = { free, city:CITY_ID, answer:ANSWER.name, landmark:LANDMARKS[0], stats, renderer, camera, freeze(v) { frozen = v; }, set(u, alt) { flightU = u; altNow = altGoal = alt; fly(0, shared.uTime.value); }, jump(x, z, alt, pitch=-1.2, yaw=0) { frozen = true; camera.position.set(x, groundY+alt, z); camera.rotation.set(pitch, yaw, 0); }, world:toWorld, renderInfo:() => renderer.info.render };
+    window.__ready = true;
+  } catch (err) {
+    console.error(err); $('loadMsg').textContent = `Failed: ${err.message}`;
+  }
+})();
+</script>
+</body>
+</html>
