@@ -1,0 +1,1 @@
+(window.T3=window.T3||{}).meta={"lat0": 56.15, "lon0": 10.205, "W": 8000, "H": 6000, "cols": 4, "rows": 3, "far": 16000};
